@@ -1,0 +1,8 @@
+camoufox>=0.4
+
+# After installing, fetch Camoufox's Firefox binary once:
+#   python -m camoufox fetch
+#
+# Only needed if you're using Isracard, Amex, or explicitly set
+# browser_engine="camoufox" in ScraperOptions for some other scraper. Most
+# scrapers use plain Chromium and don't need this.

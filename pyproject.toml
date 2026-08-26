@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "israeli-bank-scrapers-python"
+version = "0.1.0"
+description = "Python/Playwright port of eshaham/israeli-bank-scrapers — all 18 Israeli banks/credit-card companies"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "playwright>=1.45",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+camoufox = ["camoufox>=0.4"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[tool.setuptools.packages.find]
+include = ["israeli_bank_scrapers*"]

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head><meta charset="utf-8"><title>Fake Login</title></head>
+<body>
+  <form id="login-form">
+    <input type="text" placeholder="שם משתמש" />
+    <input type="password" placeholder="סיסמה" />
+    <button type="submit">Login</button>
+  </form>
+  <div id="result" style="display:none">SUCCESS</div>
+  <select id="account-picker">
+    <option value="">-- choose --</option>
+    <option value="acc1">Account 1</option>
+    <option value="acc2">Account 2</option>
+  </select>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      document.getElementById('result').style.display = 'block';
+    });
+  </script>
+</body>
+</html>

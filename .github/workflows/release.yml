@@ -1,0 +1,84 @@
+name: Build and release CLI executable
+
+# Triggers on a version tag push (e.g. `git tag v0.1.0 && git push --tags`).
+# Builds the PyInstaller-packaged CLI (see build/cli.spec) separately on
+# Windows, macOS, and Linux runners — PyInstaller can't cross-compile, so
+# each platform's executable has to be built on that platform — then
+# attaches each as a zipped asset to the GitHub Release for that tag.
+#
+# NOTE: this currently bundles plain Chromium only (matching build/cli.spec
+# as-is). Isracard/Amex need the separate Camoufox engine (see README's "Bot
+# detection: Isracard/Amex") and are NOT usable from these pre-built
+# executables yet — that's a known gap, not an oversight; see
+# FLUTTER_INTEGRATION.md's "What's not solved yet".
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # allows a manual run from the Actions tab, for testing
+
+permissions:
+  contents: write # required for softprops/action-gh-release to attach assets
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset_name: israeli-bank-scrapers-cli-windows
+          - os: macos-latest
+            asset_name: israeli-bank-scrapers-cli-macos
+          - os: ubuntu-latest
+            asset_name: israeli-bank-scrapers-cli-linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r build/requirements-build.txt
+
+      - name: Install Playwright Chromium
+        run: playwright install chromium
+
+      - name: Build executable
+        run: python build/build.py
+
+      - name: Zip the build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/israeli-bank-scrapers-cli/*" -DestinationPath "${{ matrix.asset_name }}.zip"
+
+      - name: Zip the build (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist/israeli-bank-scrapers-cli
+          zip -r "../../${{ matrix.asset_name }}.zip" .
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}.zip
+          body: |
+            Pre-built CLI executable, per platform — download the one
+            matching your OS, unzip, and use directly (no Python install
+            required). See FLUTTER_INTEGRATION.md for how to bundle this
+            into a desktop app, or run the executable's `--help` / pipe a
+            JSON request to it directly per israeli_bank_scrapers/cli.py's
+            documented protocol.
+
+            **Known gap:** Isracard and Amex are not usable from this build
+            — they need the separate Camoufox engine, not bundled here yet.
+            Everything else works as documented in the Verification status
+            table in the README.

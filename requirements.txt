@@ -1,0 +1,6 @@
+playwright>=1.45
+httpx>=0.27
+
+# For Isracard/Amex (blocked by Cloudflare Bot Management without it), see
+# requirements-camoufox.txt instead — kept separate since it's a large
+# optional dependency most companies don't need.
