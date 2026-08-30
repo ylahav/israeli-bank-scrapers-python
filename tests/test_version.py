@@ -18,16 +18,22 @@ class TestGetVersion:
     def test_matches_pyproject_toml(self):
         """The installed package's metadata should reflect pyproject.toml's
         version field — this is the whole point of reading it dynamically
-        rather than hardcoding a second copy."""
-        import tomllib
+        rather than hardcoding a second copy.
+
+        Deliberately not using tomllib here: it's Python 3.11+ only, and
+        this project (and its CI matrix) supports 3.10 too. Extracting one
+        simple `version = "X.Y.Z"` line with a regex avoids needing a full
+        TOML parser (stdlib or a tomli backport dependency) just for this."""
+        import re
         from pathlib import Path
         from israeli_bank_scrapers.version import get_version
 
         pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-        with open(pyproject_path, "rb") as f:
-            pyproject = tomllib.load(f)
+        content = pyproject_path.read_text(encoding="utf-8")
+        match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+        assert match, "could not find a version = \"...\" line in pyproject.toml"
 
-        assert get_version() == pyproject["project"]["version"]
+        assert get_version() == match.group(1)
 
     def test_exposed_on_package_init(self):
         import israeli_bank_scrapers as ibs
