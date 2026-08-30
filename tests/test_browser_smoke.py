@@ -76,3 +76,32 @@ class TestElementInteractionsAgainstRealBrowser:
         await click_button(page, 'button[type="submit"]')
         await wait_until_element_found(page, "#result", only_visible=True, timeout=5)
         assert await element_present_on_page(page, "#result")
+
+    @pytest.mark.asyncio
+    async def test_fill_input_falls_back_to_page_fill_when_value_gets_reset(self, page):
+        """Regression test for a real bug found live on an Angular reactive
+        form's ID field: the framework can wipe a value set via
+        per-keystroke type() events. fill_input should detect this and
+        retry with page.fill(), which inserts the value atomically instead.
+
+        Blocking 'keydown' reliably defeats page.type() (which simulates
+        real keystrokes) while leaving page.fill() completely unaffected
+        (it inserts the value directly, without simulating keydown at all —
+        confirmed separately). This is a clean, deterministic way to force
+        the exact "type() fails, fill() must be the one that succeeds" path
+        without any timing dependency — an earlier version of this test
+        used a setTimeout-based reset that occasionally flaked when run
+        alongside many other real-browser tests in the same session.
+        """
+        await page.evaluate(
+            """() => {
+                const el = document.createElement('input');
+                el.id = 'reset-me';
+                document.body.appendChild(el);
+                el.addEventListener('keydown', (e) => e.preventDefault());
+            }"""
+        )
+        await fill_input(page, "#reset-me", "051654929")
+        value = await page.eval_on_selector("#reset-me", "el => el.value")
+        assert value == "051654929"
+

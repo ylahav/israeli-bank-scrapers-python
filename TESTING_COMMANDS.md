@@ -4,7 +4,7 @@ Copy-paste PowerShell blocks for testing each company via `examples/scrape.py`. 
 
 **Never commit real credentials.** If you fill in real values below for your own testing, keep that copy local and untracked — don't paste real values into this file in the repo.
 
-Add these two lines to any block below to watch the browser live and see step-by-step debug output — this is what actually found and fixed the bugs in Visa Cal, Discount, Mercantile, and Hapoalim:
+Add these two lines to any block below to watch the browser live and see step-by-step debug output:
 ```powershell
 $env:IBS_SHOW_BROWSER = "1"
 $env:IBS_LOG_LEVEL = "DEBUG"

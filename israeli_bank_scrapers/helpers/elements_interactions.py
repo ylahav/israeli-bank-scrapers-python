@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
+from .debug import get_debug
 from .waiting import wait_until
 
 if TYPE_CHECKING:
     from playwright.async_api import Frame, Page
+
+debug = get_debug("elements-interactions")
 
 
 async def wait_until_element_found(
@@ -52,6 +55,107 @@ async def wait_until_iframe_found(
 async def fill_input(page_or_frame: "Page | Frame", input_selector: str, input_value: str) -> None:
     await page_or_frame.eval_on_selector(input_selector, "(input) => { input.value = ''; }")
     await page_or_frame.type(input_selector, input_value)
+
+    # Verify the value actually stuck — some frameworks' reactive forms
+    # (Angular in particular) can overwrite a programmatically-typed value on
+    # their own change-detection cycle if they don't recognize it as "real"
+    # input in the way they expect. Confirmed live on a real Angular
+    # reactive form (type="number" ID field) — .type()'s per-keystroke
+    # events got silently wiped back to empty.
+    actual_value = await _get_input_value(page_or_frame, input_selector)
+    if actual_value == input_value:
+        return
+
+    # Second attempt: retype at a realistic human pace. Playwright's default
+    # .type() fires keystrokes essentially instantly, with uniform timing —
+    # a pattern some frameworks' validation (or bot-detection heuristics)
+    # can reject even though the events themselves look correct. A real,
+    # actively-maintained sibling project (israeli-pension-scrapers) uses an
+    # explicit ~45ms per-character delay for exactly this reason, on a
+    # comparable Angular reactive-form field. Worth trying before the more
+    # mechanical fallbacks below.
+    debug.debug(
+        "fill_input: value did not stick for selector %r via type() — expected %r, DOM shows %r. "
+        "Retrying with a realistic per-keystroke delay (45ms) before falling back to atomic-set "
+        "strategies — some frameworks' validation is sensitive to unnaturally fast/uniform typing.",
+        input_selector,
+        input_value,
+        actual_value,
+    )
+    try:
+        await page_or_frame.eval_on_selector(input_selector, "(input) => { input.value = ''; }")
+        await page_or_frame.type(input_selector, input_value, delay=45)
+    except Exception as e:
+        debug.debug("fill_input: slow-retype attempt raised an exception for selector %r: %s", input_selector, e)
+
+    actual_value = await _get_input_value(page_or_frame, input_selector)
+    if actual_value == input_value:
+        debug.debug("fill_input: slow-retype (45ms delay) succeeded for selector %r", input_selector)
+        return
+
+    debug.debug(
+        "fill_input: value still did not stick for selector %r after the slow retype — expected %r, "
+        "DOM shows %r. Retrying with page.fill(), which inserts the value as one atomic operation "
+        "instead of per-keystroke events — this handles frameworks with mid-typing validation/reset "
+        "logic (e.g. Angular reactive forms) more reliably.",
+        input_selector,
+        input_value,
+        actual_value,
+    )
+    try:
+        await page_or_frame.fill(input_selector, input_value)
+    except Exception as e:
+        debug.debug("fill_input: page.fill() fallback raised an exception for selector %r: %s", input_selector, e)
+
+    retry_value = await _get_input_value(page_or_frame, input_selector)
+    if retry_value == input_value:
+        debug.debug("fill_input: page.fill() fallback succeeded for selector %r", input_selector)
+        return
+
+    debug.debug(
+        "fill_input: page.fill() fallback ALSO failed for selector %r — DOM shows %r. Trying a third "
+        "approach: setting the value via the native HTMLInputElement property setter (bypassing any "
+        "framework-level property interception) and manually dispatching input/change/blur events — "
+        "the standard workaround for React/Angular components that intercept the native value setter "
+        "so even a properly-dispatched event doesn't update their internal model.",
+        input_selector,
+        retry_value,
+    )
+    try:
+        await page_or_frame.eval_on_selector(
+            input_selector,
+            """(input, value) => {
+                const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(input, value);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.dispatchEvent(new Event('blur', { bubbles: true }));
+            }""",
+            input_value,
+        )
+    except Exception as e:
+        debug.debug("fill_input: native-setter fallback raised an exception for selector %r: %s", input_selector, e)
+        return
+
+    final_value = await _get_input_value(page_or_frame, input_selector)
+    if final_value == input_value:
+        debug.debug("fill_input: native-setter fallback succeeded for selector %r", input_selector)
+    else:
+        debug.debug(
+            "fill_input: native-setter fallback ALSO failed for selector %r — DOM shows %r. All three "
+            "fill strategies exhausted; this needs a scraper-specific investigation (the selector may be "
+            "matching a stale/duplicate element, e.g. from an SSR-hydration mismatch).",
+            input_selector,
+            final_value,
+        )
+
+
+async def _get_input_value(page_or_frame: "Page | Frame", input_selector: str) -> Any:
+    try:
+        return await page_or_frame.eval_on_selector(input_selector, "(input) => input.value")
+    except Exception as e:
+        debug.debug("fill_input: could not read back value for selector %r: %s", input_selector, e)
+        return None
 
 
 async def set_value(page_or_frame: "Page | Frame", input_selector: str, input_value: str) -> None:

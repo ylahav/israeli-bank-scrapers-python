@@ -66,6 +66,10 @@ class LoginOptions:
             post-submit URL (or via the predicate, given the page).
         user_agent: optional UA override (see CDP note above).
         wait_until: Playwright navigation wait state for `login_url`.
+        otp_step: optional OtpStep — set this for sites that text/email a
+            one-time code mid-login (common for insurance companies; some
+            banks too). Checked right after the initial credentials submit,
+            before post_action.
     """
 
     def __init__(
@@ -80,6 +84,7 @@ class LoginOptions:
         post_action: Optional[Callable[[], Awaitable[None]]] = None,
         user_agent: Optional[str] = None,
         wait_until: str = "load",
+        otp_step: Optional["OtpStep"] = None,
     ):
         self.login_url = login_url
         self.fields = fields
@@ -90,6 +95,54 @@ class LoginOptions:
         self.post_action = post_action
         self.user_agent = user_agent
         self.wait_until = wait_until
+        self.otp_step = otp_step
+
+
+class OtpStep:
+    """Describes a "type in the code we texted/emailed you" step that shows
+    up mid-login, after credentials are submitted but before the site
+    considers you logged in.
+
+    Attributes:
+        detect_selector: element whose appearance means "the site wants a
+            code now". Checked with a short timeout right after the initial
+            submit — if it never appears, login proceeds normally (the site
+            may skip OTP for a remembered device/session).
+        input_selector: where to type the code once BaseScraper.request_otp_code()
+            returns it. Use this for a single combined code field.
+        input_selectors: alternative to input_selector, for sites that split
+            the code across N separate single-digit boxes (not universal).
+            Pass exactly one selector per box, in order; the
+            code is zipped across them one character each. Provide exactly
+            one of input_selector / input_selectors, not both.
+        submit_selector: CSS selector to click, or a zero-arg async callable,
+            same shape as LoginOptions.submit_button_selector.
+        detect_timeout: seconds to wait for detect_selector before giving up
+            and assuming OTP wasn't required this time.
+        context: extra info passed through to request_otp_code() /
+            otp_provider — e.g. {"hint": "sent to the phone on file"}. The
+            company_id is always included automatically; this is for
+            anything scraper-specific worth showing the end user.
+    """
+
+    def __init__(
+        self,
+        *,
+        detect_selector: str,
+        submit_selector: "str | Callable[[], Awaitable[None]]",
+        input_selector: Optional[str] = None,
+        input_selectors: Optional[list[str]] = None,
+        detect_timeout: float = 15.0,
+        context: Optional[dict] = None,
+    ):
+        if bool(input_selector) == bool(input_selectors):
+            raise ValueError("OtpStep needs exactly one of input_selector or input_selectors, not both/neither")
+        self.detect_selector = detect_selector
+        self.input_selector = input_selector
+        self.input_selectors = input_selectors
+        self.submit_selector = submit_selector
+        self.detect_timeout = detect_timeout
+        self.context = context
 
 
 async def _get_key_by_value(possible_results: dict[str, list[Any]], value: str, page: "Page") -> str:
@@ -270,6 +323,39 @@ class BaseScraperWithBrowser(BaseScraper[TCredentials]):
         for field in fields:
             await fill_input(page_or_frame, field["selector"], field["value"])
 
+    async def _handle_otp_step(self, otp_step: "OtpStep", login_frame_or_page: "Page | Frame") -> None:
+        debug.debug("checking whether an OTP step is required")
+        try:
+            await wait_until_element_found(login_frame_or_page, otp_step.detect_selector, timeout=otp_step.detect_timeout)
+        except Exception:
+            debug.debug("OTP indicator never appeared within %ss — assuming not required this time", otp_step.detect_timeout)
+            return
+
+        debug.debug("OTP required — requesting code from otp_provider")
+        code = await self.request_otp_code(otp_step.context)
+
+        from ..helpers.elements_interactions import fill_input
+
+        if otp_step.input_selectors:
+            if len(code) != len(otp_step.input_selectors):
+                debug.debug(
+                    "OTP code length (%d) doesn't match the number of input boxes (%d) — filling what overlaps",
+                    len(code),
+                    len(otp_step.input_selectors),
+                )
+            for selector, digit in zip(otp_step.input_selectors, code):
+                await fill_input(login_frame_or_page, selector, digit)
+        else:
+            await fill_input(login_frame_or_page, otp_step.input_selector, code)
+
+        debug.debug("submitting OTP code")
+        if isinstance(otp_step.submit_selector, str):
+            from ..helpers.elements_interactions import click_button
+
+            await click_button(login_frame_or_page, otp_step.submit_selector)
+        else:
+            await otp_step.submit_selector()
+
     async def login(self, credentials: TCredentials) -> ScraperScrapingResult | ScraperLoginResult:
         if not credentials or self.page is None:
             return _create_general_error()
@@ -312,6 +398,9 @@ class BaseScraperWithBrowser(BaseScraper[TCredentials]):
             await login_options.submit_button_selector()
 
         self._emit_progress(ScraperProgressTypes.logging_in)
+
+        if login_options.otp_step:
+            await self._handle_otp_step(login_options.otp_step, login_frame_or_page)
 
         if login_options.post_action:
             debug.debug("execute 'post_action' interceptor provided in login options")

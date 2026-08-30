@@ -20,9 +20,26 @@ the unverified ones and are willing to test, see
 
 ## What's here
 
+- **`get_version()`** (`israeli_bank_scrapers.get_version()`, also
+  `israeli_bank_scrapers.__version__`) — reads the installed package's
+  version from its own metadata, so `pyproject.toml` stays the single
+  source of truth rather than a version string duplicated in code. Also
+  reachable through the CLI without a full scrape or browser launch — send
+  `{"type": "version"}` instead of a scrape request; see `cli.py`'s module
+  docstring. The Dart client's `getVersion()` wraps this for a Flutter app
+  that wants to confirm which build it's actually running.
 - **Full core architecture**: `BaseScraper` / `BaseScraperWithBrowser`
   (`israeli_bank_scrapers/scrapers/base_scraper*.py`) — the login-flow state
   machine, progress events, browser lifecycle, error handling.
+- **OTP (one-time-code) support**: `BaseScraper.otp_provider` /
+  `request_otp_code()` and `OtpStep` (in `LoginOptions`) let a scraper pause
+  mid-login for a texted/emailed code, and resume once it's supplied — the
+  CLI protocol (`otp_required`/`otp_code`) and Dart client already support
+  this. No scraper currently uses it (previously built out for insurance
+  companies that have since been removed from this port — see
+  `CONTRIBUTING.md`/git history if you want that code back) — it's kept as
+  general-purpose infrastructure for any future bank/card company whose
+  login needs a mid-flow code.
 - **Full shared helpers** (`israeli_bank_scrapers/helpers/`): element waiting
   and interaction, navigation, in-page `fetch()`, transaction post-processing
   (installment date-fixing, filtering, sorting), month-range calculation,
@@ -304,6 +321,25 @@ Tips for this layer:
 - **Credentials never leave your machine** in this code — everything runs
   locally against your own Playwright browser instance, same trust model as
   upstream.
+- **A general `fill_input()` improvement, from cross-referencing a sibling
+  project**: some frameworks' form validation appears sensitive to typing
+  *speed*, not just the event mechanism — Playwright's default `.type()`
+  fires keystrokes essentially instantly with uniform timing, which certain
+  Angular reactive forms may reject even though the events themselves look
+  correct. `fill_input()` retries with a realistic ~45ms per-character
+  delay before falling back to the more mechanical `page.fill()` /
+  native-setter tiers. Confirmed via mocks that the tiers fire in the right
+  order with the right parameters. This was built and tested while
+  developing insurance-company scrapers that have since been removed from
+  this port, but the fix itself is generic and worth keeping — any
+  bank/card scraper with a stubborn Angular field could hit the same class
+  of issue.
+- Phoenix, and every insurance/pension/investment company previously
+  explored in this port (Harel, Migdal, Menora, Clal), are not part of this
+  codebase — removed at the maintainer's request after being built and, in
+  some cases, confirmed working live. If you want to rebuild any of these,
+  the general architecture (OTP support, the `fill_input` retry tiers) is
+  still here to build on; see CONTRIBUTING.md.
 
 ## Porting another bank
 

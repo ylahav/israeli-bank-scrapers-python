@@ -63,6 +63,22 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
+async def _console_otp_provider(context: dict) -> str:
+    """Prompts for a one-time code on the console — for scrapers whose login
+    texts/emails a code mid-flow. Harmless to wire up unconditionally:
+    scrapers that never need it never call this."""
+    hint = context.get("hint")
+    prompt = f"\n[{context.get('company_id')}] One-time code required"
+    if hint:
+        prompt += f" ({hint})"
+    prompt += ": "
+
+    loop = asyncio.get_event_loop()
+    # input() is blocking — run it off the event loop so the scraper's other
+    # async work (browser automation) isn't frozen while waiting for you to type.
+    return await loop.run_in_executor(None, input, prompt)
+
+
 async def main() -> None:
     log_level = os.environ.get("IBS_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=getattr(logging, log_level, logging.INFO))
@@ -81,6 +97,7 @@ async def main() -> None:
         store_failure_screenshot_path="failure_screenshot.png",  # saved next to this script on any failure
     )
     scraper = create_scraper(options)
+    scraper.otp_provider = _console_otp_provider
     scraper.on_progress(lambda cid, progress: print(f"[{cid}] {progress.value}"))
 
     credentials = _build_credentials_from_env(company_id)

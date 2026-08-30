@@ -7,8 +7,17 @@ License. Large portions of this port's logic (URLs, selectors, transaction
 parsing, login flows) are translated directly from that project's
 TypeScript source.
 
-Copyright (c) 2026 [Yair Lahav]
+A general field-filling improvement in
+israeli_bank_scrapers/helpers/elements_interactions.py (retrying with a
+realistic per-keystroke typing delay for Angular reactive forms that
+reject fast/uniform synthetic typing) was informed in part by
+MotionPeak/israeli-pension-scrapers
+(https://github.com/MotionPeak/israeli-pension-scrapers), copyright (c)
+2026 Shahar Solomons, also licensed under the MIT License.
+
+Copyright (c) 2026 [your name/org here]
 Portions Copyright (c) Elad Shaham and israeli-bank-scrapers contributors
+Portions Copyright (c) 2026 Shahar Solomons (israeli-pension-scrapers)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to

@@ -12,7 +12,7 @@ Notes on translation:
 
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from typing import Awaitable, Callable, Generic, Optional, TypeVar
 
 from ..definitions import ScraperProgressTypes
 from ..errors import create_generic_error, create_timeout_error
@@ -23,11 +23,37 @@ TCredentials = TypeVar("TCredentials")
 
 ProgressCallback = Callable[[str, ScraperProgressTypes], None]
 
+# Called when a scraper hits a "type in the code we texted/emailed you" step
+# mid-login. Receives a small context dict (at minimum {"company_id": ...},
+# scrapers may add more — e.g. a phone number hint) and must return the code
+# as a string. Set by whatever is driving the scraper: cli.py wires this to
+# the NDJSON otp_required/otp_code round-trip over stdio; a direct Python
+# caller can set scraper.otp_provider to any async function, e.g. one that
+# prompts on a console or a GUI.
+OtpProvider = Callable[[dict], Awaitable[str]]
+
 
 class BaseScraper(Generic[TCredentials]):
     def __init__(self, options: ScraperOptions):
         self.options = options
         self._progress_listeners: list[ProgressCallback] = []
+        self.otp_provider: Optional[OtpProvider] = None
+
+    async def request_otp_code(self, context: Optional[dict] = None) -> str:
+        """Called by a scraper's login flow when the site requires a code
+        sent via SMS/email/etc. Blocks until whatever set `otp_provider`
+        supplies one. Raises if nothing configured it — a scraper hitting
+        this with no provider set is a caller error, not a scraper bug: the
+        caller needs a way to actually get the code to the end user."""
+        if not self.otp_provider:
+            raise Exception(
+                f"{self.options.company_id} requires a one-time code mid-login, but no otp_provider was "
+                "configured. Set scraper.otp_provider to an async function that returns the code (a console "
+                "prompt, a GUI dialog, or — when driven via cli.py — this is already wired to the "
+                "otp_required/otp_code NDJSON round-trip automatically)."
+            )
+        full_context = {"company_id": self.options.company_id, **(context or {})}
+        return await self.otp_provider(full_context)
 
     async def initialize(self) -> None:
         self._emit_progress(ScraperProgressTypes.initializing)

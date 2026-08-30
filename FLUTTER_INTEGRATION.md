@@ -123,7 +123,44 @@ await for (final event in service.scrape(
 ```
 
 The stream emits zero or more `ScrapeProgress` events, then exactly one
-`ScrapeSuccess` or `ScrapeFailure`, then closes.
+`ScrapeSuccess` or `ScrapeFailure`, then closes. Some scrapers (currently
+none shipped, but the plumbing is in place for upcoming insurance-company
+support) can also emit `ScrapeOtpRequired` before the terminal event — see
+below.
+
+### One-time codes (OTP) — for logins that text/email you a code mid-flow
+
+```dart
+case ScrapeOtpRequired o:
+  final code = await showOtpDialog(context: this.context, hint: o.context['hint']);
+  o.submit(code);
+```
+
+The underlying CLI process genuinely pauses here — it's blocked reading
+stdin, waiting for your app to call `submit()`. This works because
+`BankScraperService` deliberately keeps the process's stdin open across the
+whole scrape (not just for the initial request) specifically to support
+this pause-and-resume. There's no built-in timeout on this wait; if your
+dialog can be dismissed or abandoned, add your own timeout/cancellation
+around it — an abandoned `ScrapeOtpRequired` otherwise leaves that CLI
+process running indefinitely.
+
+`o.context` always includes `company_id` and may include scraper-specific
+hints (e.g. a masked phone number) worth showing the user — check the
+specific scraper's code for what it sends.
+
+### Checking the bundled build's version
+
+```dart
+final version = await service.getVersion();
+```
+
+A fast, one-shot request — the CLI answers with a single line and exits
+immediately, without launching a browser at all. Useful for confirming
+which version of the executable actually shipped in a given app build, or
+for surfacing it in a settings/about screen. Throws `ScraperProcessException`
+if the executable can't be started or the response is malformed — same
+error type as everything else in this client.
 
 ## 4. Credential handling
 
@@ -191,3 +228,15 @@ Two different failure modes, handled differently:
   been confirmed live yet. Debug with `IBS_SHOW_BROWSER=1`
   and `IBS_LOG_LEVEL=DEBUG` via `examples/scrape.py` before wiring a new
   company into the app.
+- **The OTP round-trip plumbing exists but no insurance scraper does yet.**
+  `BaseScraper.otp_provider`/`request_otp_code()`, `OtpStep` in
+  `LoginOptions`, and the CLI's `otp_required`/`otp_code` NDJSON messages
+  are all built and unit-tested — but they've never driven a real scraper
+  end-to-end, since insurance companies (unlike every bank in this port)
+  have no upstream TypeScript reference to translate from. Building the
+  first one is genuinely new development, not a port.
+- **`bank_scraper_service.dart` couldn't be compile-checked.** This
+  sandbox has no Dart toolchain — every change to that file was verified by
+  careful manual read-through only (which did catch one real null-safety
+  bug), not `dart analyze` or an actual build. Run one before shipping,
+  especially after the OTP-support changes.

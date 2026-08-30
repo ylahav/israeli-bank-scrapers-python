@@ -1,6 +1,6 @@
 """Port of src/scrapers/factory.ts
 
-All banks/card companies from the upstream repo are now wired up.
+All banks/card companies from the upstream repo are wired up here.
 """
 
 from __future__ import annotations
